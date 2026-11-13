@@ -1,0 +1,33 @@
+{
+  "name": "flash-sale-ecommerce",
+  "version": "1.0.0",
+  "private": true,
+  "description": "High-Concurrency Flash Sale E-Commerce Platform Monorepo",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "infra:up": "docker compose up -d postgres redis redpanda",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f",
+    "db:generate": "pnpm --filter @repo/api prisma:generate",
+    "db:migrate": "pnpm --filter @repo/api prisma:migrate",
+    "db:seed": "pnpm --filter @repo/api prisma:seed",
+    "db:reset": "pnpm --filter @repo/api prisma:reset",
+    "benchmark:flash": "docker run --rm -i -e API_URL=http://host.docker.internal:4000/api/v1 -v ./benchmark:/benchmark grafana/k6:latest run /benchmark/flash-sale.js",
+    "benchmark:catalog": "docker run --rm -i -e API_URL=http://host.docker.internal:4000/api/v1 -v ./benchmark:/benchmark grafana/k6:latest run /benchmark/read-catalog.js",
+    "benchmark:validate": "pnpm --filter @repo/api exec tsx ../../benchmark/validate-stock.ts"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

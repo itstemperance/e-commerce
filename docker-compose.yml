@@ -1,0 +1,134 @@
+name: flash-sale-ecommerce
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flashsale-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-flashsale_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-flashsale_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - flashsale-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: flashsale-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    networks:
+      - flashsale-net
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.8
+    container_name: flashsale-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:29092,external://0.0.0.0:9092
+      - --advertise-kafka-addr internal://redpanda:29092,external://localhost:9092
+      - --pandaproxy-addr internal://0.0.0.0:28082,external://0.0.0.0:8082
+      - --advertise-pandaproxy-addr internal://redpanda:28082,external://localhost:8082
+      - --schema-registry-addr internal://0.0.0.0:28081,external://0.0.0.0:8081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=warn
+    ports:
+      - "9092:9092"
+      - "8081:8081"
+      - "8082:8082"
+      - "9644:9644"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - flashsale-net
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: flashsale-api
+    profiles: ["apps"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-flashsale_db}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BROKERS: redpanda:29092
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-super_secret_access_key_flashsale_2026}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-super_secret_refresh_key_flashsale_2026}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_flashsale_hmac_secret_2026}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - flashsale-net
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: flashsale-web
+    profiles: ["apps"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - flashsale-net
+
+volumes:
+  postgres_data:
+    name: flashsale_postgres_data
+  redis_data:
+    name: flashsale_redis_data
+  redpanda_data:
+    name: flashsale_redpanda_data
+
+networks:
+  flashsale-net:
+    name: flashsale-network
+    driver: bridge
